@@ -1,37 +1,37 @@
 # FastAPI and server
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
 
 # Database
-sqlalchemy==2.0.23
-alembic==1.12.1
-psycopg2-binary==2.9.9
+sqlalchemy>=2.0.23
+alembic>=1.12.1
+psycopg2-binary>=2.9.10
 
 # Authentication
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-python-dotenv==1.0.0
-google-auth==2.29.0        # Google ID token verification for OAuth login
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-dotenv>=1.0.0
+google-auth>=2.29.0        # Google ID token verification for OAuth login
 
 # HTTP requests
-requests==2.31.0
-aiohttp==3.9.1
+requests>=2.31.0
+aiohttp>=3.9.1
 
 # Image Processing
-Pillow==10.1.0
-numpy==1.24.3
+Pillow>=10.1.0
+numpy>=1.26.0
 
 # Configuration & Validation
-pydantic==2.5.0
-pydantic-settings==2.1.0
-email-validator==2.1.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+email-validator>=2.1.0
 
 # Templates / static
-jinja2==3.1.2
+jinja2>=3.1.2
 
 # Logging
-python-json-logger==2.0.7
+python-json-logger>=2.0.7
 
 # Utilities
-pyyaml==6.0.1
+pyyaml>=6.0.1
