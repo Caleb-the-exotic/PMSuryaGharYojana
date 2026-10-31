@@ -1,0 +1,5 @@
+{
+    "project_task_type": "object-detection",
+    "model_type": "yolov11s",
+    "model_id": "aipsi/1"
+}
