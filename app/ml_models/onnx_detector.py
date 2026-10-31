@@ -180,3 +180,4 @@ def detect_with_onnx_weights(
     except Exception as e:
         logger.error(f"ONNX detection error: {e}", exc_info=True)
         return None
+
