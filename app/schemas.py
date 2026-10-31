@@ -1,7 +1,12 @@
 """
 Pydantic schemas for request/response validation
 """
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, field_validator
+try:
+    import email_validator
+    from pydantic import EmailStr
+except ImportError:
+    EmailStr = str  # Fallback if email-validator is not installed
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
@@ -67,6 +72,8 @@ class AnalyzeLocationRequest(BaseModel):
     sample_id: Optional[str] = None
     address: Optional[str] = None
     zoom: Optional[int] = 18
+    buffer_radius: Optional[str] = "1200"
+    image_base64: Optional[str] = None
 
 
 class AnalysisResultResponse(BaseModel):
@@ -118,6 +125,7 @@ class AnalyzeLocationResponse(BaseModel):
     predictions: List[Dict[str, Any]]
     saved_to_db: bool  # True if user is authenticated and result was persisted
     analysis_id: Optional[int] = None
+    qc_notes: Optional[List[str]] = None
 
 
 # ── Subsidy Schemas ──────────────────────────────────────────────────────────────

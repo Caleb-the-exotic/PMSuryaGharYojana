@@ -209,19 +209,27 @@ class ApiClient {
   }
 
   // ─── Solar Analysis ──────────────────────────────
-  async analyzeLocation(data: { latitude: number; longitude: number }) {
+  async analyzeLocation(data: { latitude: number; longitude: number; image_base64?: string; buffer_radius?: string }) {
     const res = await this.request<any>("/api/analysis/analyze-location", {
       method: "POST",
       body: JSON.stringify(data),
     });
+    const conf = res.confidence != null ? (res.confidence > 1 ? res.confidence : res.confidence * 100) : 0;
     return {
       ...res,
       id: res.analysis_id ? res.analysis_id.toString() : "",
-      panel_detected: res.has_solar,
-      confidence_score: res.confidence,
-      pv_area: res.pv_area_sqm,
-      estimated_capacity: res.capacity_kw,
+      panel_detected: Boolean(res.has_solar),
+      confidence_score: Math.round(conf * 10) / 10,
+      pv_area: res.pv_area_sqm || 0,
+      estimated_capacity: res.capacity_kw || 0,
       raw_json: res.predictions ? { predictions: res.predictions } : {},
+      qc_notes: res.qc_notes || [
+        `Imagery source: ${res.satellite_image_source || "ESRI 3D SceneView"}`,
+        `Model: ${res.model_used || "YOLOv11s ONNX (weights.onnx)"}`,
+        `Buffer radius: ${data.buffer_radius || "1200"} ft`,
+        `Detections: ${res.panel_count ?? 0} solar panel(s) confirmed`,
+        `Confidence: ${conf.toFixed(1)}%`
+      ],
       created_at: new Date().toISOString()
     } as AnalysisResult;
   }

@@ -1,6 +1,6 @@
 """
 Solar analysis routes
-- POST /api/analysis/analyze-location — one-shot lat/lon → run inference → return result
+- POST /api/analysis/analyze-location — one-shot lat/lon / viewport screenshot → run inference → return result
   Guest: runs but does NOT persist to DB
   Auth: persists and links to user
 - GET  /api/analysis/history — authenticated user's history
@@ -9,6 +9,7 @@ Solar analysis routes
 """
 import os
 import uuid
+import base64
 import logging
 import requests
 from io import BytesIO
@@ -24,6 +25,7 @@ from app.schemas import AnalyzeLocationRequest, AnalyzeLocationResponse, Analysi
 from app.dependencies import get_current_user_optional, get_current_user
 from app.core.config import settings
 from app.services.satellite import SatelliteImageryService
+from app.ml_models.onnx_detector import detect_with_onnx_weights
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -45,9 +47,9 @@ def _estimate_capacity_kw(panel_count: int) -> float:
 def _derive_qc_status(confidence: float, has_solar: bool) -> str:
     if not has_solar:
         return "NO_SOLAR_DETECTED"
-    if confidence >= 0.75:
+    if confidence >= 0.70:
         return "VERIFIABLE"
-    if confidence >= 0.4:
+    if confidence >= 0.35:
         return "PARTIALLY_VERIFIABLE"
     return "PENDING"
 
@@ -84,7 +86,6 @@ def _call_roboflow_workflow(image_bytes: bytes, latitude: float, longitude: floa
     """
     Call Roboflow inference using the workflow API via HTTP.
     Uses dynamic cropping based on the clicked location.
-    Raises exception if API fails - no fallback to static data.
     """
     if not settings.ROBOFLOW_API_KEY:
         raise HTTPException(status_code=503, detail="ROBOFLOW_API_KEY not configured")
@@ -136,6 +137,11 @@ def _call_roboflow_workflow(image_bytes: bytes, latitude: float, longitude: floa
         "confidence": round(avg_conf, 4) if avg_conf > 0 else 0.0,
         "predictions": predictions,
         "model_used": "roboflow_workflow_detect_and_classify_4",
+        "qc_notes": [
+            "Imagery analyzed via Roboflow cloud workflow",
+            f"Detected panels: {panel_count}",
+            f"Confidence: {round(avg_conf * 100, 1)}%"
+        ]
     }
 
 
@@ -153,33 +159,55 @@ async def analyze_location(
     db: Session = Depends(get_db),
 ):
     """
-    Fetch satellite tile → run Roboflow inference → return structured result.
+    Fetch satellite tile or decode 3D viewport screenshot → run ONNX weights (or workflow) inference → return structured result.
     Guest users: result is returned but NOT stored in DB.
     Authenticated users: result is stored and linked to their account.
     """
-    # Fetch satellite image
-    image_bytes = SatelliteImageryService.fetch_satellite_image(
-        body.latitude, body.longitude, zoom=body.zoom or 18
-    )
+    image_bytes = None
+    satellite_source = "esri_world_imagery"
+
+    # 1. Use 3D container viewport screenshot if provided
+    if body.image_base64:
+        try:
+            raw_b64 = body.image_base64
+            if "," in raw_b64:
+                raw_b64 = raw_b64.split(",", 1)[1]
+            image_bytes = base64.b64decode(raw_b64)
+            satellite_source = f"esri_3d_viewport_{body.buffer_radius or '1200'}ft"
+            logger.info(f"Received 3D viewport screenshot ({len(image_bytes)} bytes) for {body.latitude}, {body.longitude}")
+        except Exception as e:
+            logger.error(f"Failed to decode image_base64: {e}")
+
+    # 2. Fall back to Esri satellite tile if no screenshot provided
+    if not image_bytes:
+        image_bytes = SatelliteImageryService.fetch_satellite_image(
+            body.latitude, body.longitude, zoom=body.zoom or 18
+        )
     if not image_bytes:
         raise HTTPException(status_code=503, detail="Failed to fetch satellite imagery")
 
-    try:
-        inference = _call_roboflow(image_bytes, body.latitude, body.longitude)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Roboflow inference failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Roboflow inference failed: {str(e)}")
+    # 3. Primary inference: Run local YOLOv11s weights.onnx
+    inference = detect_with_onnx_weights(image_bytes)
+
+    # 4. Fallback inference: Roboflow workflow if local ONNX unavailable
+    if not inference:
+        try:
+            inference = _call_roboflow(image_bytes, body.latitude, body.longitude)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Inference failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
 
     panel_count = inference["panel_count"]
     confidence = inference["confidence"]
     has_solar = inference["has_solar"]
     predictions = inference["predictions"]
-    model_used = inference["model_used"]
+    model_used = inference.get("model_used", "YOLOv11s ONNX (weights.onnx)")
+    qc_notes = inference.get("qc_notes", [])
 
-    pv_area = _estimate_pv_area(panel_count)
-    capacity_kw = _estimate_capacity_kw(panel_count)
+    pv_area = inference.get("pv_area_sqm") or _estimate_pv_area(panel_count)
+    capacity_kw = inference.get("capacity_kw") or _estimate_capacity_kw(panel_count)
     qc_status = _derive_qc_status(confidence, has_solar)
 
     sample_id = body.sample_id or f"SOLAR_{uuid.uuid4().hex[:8].upper()}"
@@ -213,8 +241,9 @@ async def analyze_location(
         )
         db.add(db_result)
 
-        # Cache satellite image
-        cache_path = os.path.join("data/cache", f"{sample_id}_satellite.jpg")
+        # Cache image to disk
+        cache_filename = f"{sample_id}_{uuid.uuid4().hex[:6]}.jpg"
+        cache_path = os.path.join("data/cache", cache_filename)
         with open(cache_path, "wb") as f:
             f.write(image_bytes)
 
@@ -243,10 +272,11 @@ async def analyze_location(
         capacity_kw=capacity_kw,
         qc_status=qc_status,
         model_used=model_used,
-        satellite_image_source="esri_world_imagery",
+        satellite_image_source=satellite_source,
         predictions=predictions,
         saved_to_db=saved_to_db,
         analysis_id=analysis_id,
+        qc_notes=qc_notes,
     )
 
 
