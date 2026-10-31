@@ -55,8 +55,8 @@ class Settings(BaseSettings):
 
     # External APIs — NEVER expose to frontend; all calls go through backend
     GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
-    ROBOFLOW_API_KEY: str = os.getenv("ROBOFLOW_API_KEY", "")
-    ROBOFLOW_MODEL_ID: str = os.getenv("ROBOFLOW_MODEL_ID", "solar-panels-detection-9liyd/5")
+    ROBOFLOW_API_KEY: str = os.getenv("ROBOFLOW_API_KEY", "OXBEWKWomWatf7e19kyj")
+    ROBOFLOW_MODEL_ID: str = os.getenv("ROBOFLOW_MODEL_ID", "aipsi/1")
     ABLY_API_KEY: str = os.getenv("ABLY_API_KEY", "")
     NASA_POWER_API_KEY: str = os.getenv("NASA_POWER_API_KEY", "")
     ESRI_API_KEY: str = os.getenv("ESRI_API_KEY", "")

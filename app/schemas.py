@@ -126,6 +126,7 @@ class AnalyzeLocationResponse(BaseModel):
     saved_to_db: bool  # True if user is authenticated and result was persisted
     analysis_id: Optional[int] = None
     qc_notes: Optional[List[str]] = None
+    annotated_image: Optional[str] = None
 
 
 # ── Subsidy Schemas ──────────────────────────────────────────────────────────────

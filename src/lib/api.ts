@@ -223,6 +223,8 @@ class ApiClient {
       pv_area: res.pv_area_sqm || 0,
       estimated_capacity: res.capacity_kw || 0,
       raw_json: res.predictions ? { predictions: res.predictions } : {},
+      annotated_image: res.annotated_image || null,
+      predictions: res.predictions || [],
       qc_notes: res.qc_notes || [
         `Imagery source: ${res.satellite_image_source || "ESRI 3D SceneView"}`,
         `Model: ${res.model_used || "YOLOv11s ONNX (weights.onnx)"}`,
@@ -431,6 +433,8 @@ export interface AnalysisResult {
   estimated_capacity: number;
   qc_status: string;
   qc_notes?: string[];
+  annotated_image?: string;
+  predictions?: any[];
   raw_json: Record<string, any>;
   created_at: string;
 }

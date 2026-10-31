@@ -50,6 +50,8 @@ interface ScanResults {
   rawJson: Record<string, any>;
   savedId?: string;
   bufferRadius?: string;
+  annotatedImage?: string;
+  predictions?: any[];
 }
 
 const Analysis = () => {
@@ -83,6 +85,7 @@ const Analysis = () => {
   const [altitude, setAltitude] = useState(0);
   const [tilt, setTilt] = useState(45);
   const [activeTab, setActiveTab] = useState<'primary' | 'detailed' | 'logs'>('primary');
+  const [displayMode, setDisplayMode] = useState<'3d' | 'annotated'>('3d');
 
   // Initialize ArcGIS 2D MapView
   useEffect(() => {
@@ -334,34 +337,33 @@ const Analysis = () => {
             qcNotes: apiResult.qc_notes || [],
             rawJson: apiResult.raw_json,
             savedId: apiResult.id,
-            bufferRadius: bufferRadius === "1200" ? "1,200 ft" : "2,400 ft"
+            bufferRadius: bufferRadius === "1200" ? "1,200 ft" : "2,400 ft",
+            annotatedImage: apiResult.annotated_image,
+            predictions: apiResult.predictions,
           });
+
+          if (apiResult.annotated_image) {
+            setDisplayMode('annotated');
+          }
 
           if (apiResult.user_id) setSaved(true);
         } catch (err: any) {
-          console.error("ONNX weights processing error:", err);
-          showError("Model inference: " + (err.message || "Failed to process image"));
+          console.error("Inference processing error:", err);
+          showError("Model inference error: " + (err.message || "Failed to process image"));
 
-          // Graceful fallback to real calculations
           setResults({
-            detected: true,
-            panelCount: 18,
-            confidence: 89.4,
-            powerEstimateKw: 6.3,
-            areaEstimateSqm: 37.8,
-            sampleId: "SCAN-" + Math.floor(1000 + Math.random() * 9000),
+            detected: false,
+            panelCount: 0,
+            confidence: 0,
+            powerEstimateKw: 0,
+            areaEstimateSqm: 0,
+            sampleId: "ERR-" + Math.floor(1000 + Math.random() * 9000),
             qcNotes: [
-              "ESRI World Imagery 3D photorealistic tiles confirmed",
-              `Buffer radius: ${bufferRadius === "1200" ? "1,200 ft" : "2,400 ft"} (${cameraAltitude}m altitude)`,
-              "Viewport capture processed through YOLOv11 inference pipeline",
-              "Surface geometry aligned with rooftop azimuth"
+              "Model inference encountered an issue: " + (err.message || "Network / processing error"),
+              `Target: Lat ${targetLat.toFixed(4)}, Lon ${targetLon.toFixed(4)}`,
+              `Buffer radius: ${bufferRadius === "1200" ? "1,200 ft" : "2,400 ft"}`
             ],
-            rawJson: {
-              latitude: targetLat,
-              longitude: targetLon,
-              buffer_radius: bufferRadius,
-              detection: { panel_count: 18, confidence: 0.894 }
-            },
+            rawJson: { error: err.message || "Inference failed" },
             bufferRadius: bufferRadius === "1200" ? "1,200 ft" : "2,400 ft"
           });
         } finally {
@@ -432,6 +434,7 @@ const Analysis = () => {
     setScanStarted(false);
     setIsImmobilized(false);
     setActiveTab('primary');
+    setDisplayMode('3d');
     setDetailsOpen(false);
     setError("");
     setSaved(false);
@@ -805,6 +808,30 @@ const Analysis = () => {
                                 <ConfidenceCircle value={results.confidence} />
                               </div>
                             </div>
+
+                            {/* View AI Detection Overlay Shortcut */}
+                            {results.annotatedImage && (
+                              <button
+                                type="button"
+                                onClick={() => setDisplayMode(displayMode === 'annotated' ? '3d' : 'annotated')}
+                                className="glass-card rounded-xl p-3 flex items-center justify-between border border-primary/40 hover:border-primary transition-all bg-primary/10 hover:bg-primary/20 text-left group"
+                              >
+                                <div className="flex items-center gap-2.5">
+                                  <div className="p-1.5 rounded-lg bg-primary/20 text-primary">
+                                    <Crosshair className="w-4 h-4" />
+                                  </div>
+                                  <div>
+                                    <div className="text-xs font-mono font-bold text-foreground group-hover:text-primary transition-colors">
+                                      {displayMode === 'annotated' ? "Back to 3D Terrain View" : "View AI Detection Overlay"}
+                                    </div>
+                                    <div className="text-[10px] text-muted-foreground font-mono">
+                                      {results.panelCount > 0 ? `${results.panelCount} solar panels boxed & highlighted` : "Inspect viewport detection frame"}
+                                    </div>
+                                  </div>
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-primary group-hover:translate-x-1 transition-transform" />
+                              </button>
+                            )}
                           </motion.div>
                         ) : activeTab === 'detailed' ? (
                           <motion.div
@@ -868,6 +895,41 @@ const Analysis = () => {
 
                 {/* Right Panel: ArcGIS 3D SceneView (ESRI Satellite Map) */}
                 <div className="lg:col-span-2 glass-card rounded-2xl relative overflow-hidden h-[480px]">
+                  {/* View Mode Toggle Pill (3D Map vs AI Detection Overlay) */}
+                  {results?.annotatedImage && (
+                    <div className="absolute top-3 left-3 z-[60] flex items-center gap-1.5 glass-card rounded-xl p-1 bg-background/80 backdrop-blur border border-primary/30 shadow-lg">
+                      <button
+                        type="button"
+                        onClick={() => setDisplayMode('3d')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all flex items-center gap-1.5 ${
+                          displayMode === '3d'
+                            ? "bg-primary/20 border border-primary text-primary font-bold shadow-[0_0_10px_rgba(0,247,255,0.2)]"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        3D Terrain View
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDisplayMode('annotated')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all flex items-center gap-1.5 ${
+                          displayMode === 'annotated'
+                            ? "bg-primary/20 border border-primary text-primary font-bold shadow-[0_0_10px_rgba(0,247,255,0.2)]"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <Crosshair className="w-3.5 h-3.5 text-primary" />
+                        AI Detection Overlay
+                        {results.detected && (
+                          <span className="ml-1 px-1.5 py-0.5 bg-primary/30 text-primary text-[10px] rounded-full font-mono">
+                            {results.panelCount}
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
                   {/* HUD Telemetry Banner */}
                   <div className="absolute top-3 right-3 z-[60] glass-card rounded-lg px-3 py-2 bg-background/60 backdrop-blur flex flex-col gap-1 border border-border/50 pointer-events-none">
                     <span className="font-mono-tactical text-[10px] text-foreground">ALT: {altitude}m</span>
@@ -879,9 +941,33 @@ const Analysis = () => {
                   <div
                     ref={sceneElementRef}
                     className={`absolute inset-0 z-0 bg-muted/20 transition-all ${
-                      isImmobilized ? "pointer-events-none select-none" : ""
-                    }`}
+                      displayMode === '3d' ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                    } ${isImmobilized ? "pointer-events-none select-none" : ""}`}
                   />
+
+                  {/* AI Annotated Detection Image View */}
+                  {displayMode === 'annotated' && results?.annotatedImage && (
+                    <div className="absolute inset-0 z-10 bg-background/90 backdrop-blur-sm flex flex-col items-center justify-center p-3 pb-16">
+                      <div className="relative max-w-full max-h-full flex items-center justify-center rounded-xl overflow-hidden border border-primary/40 shadow-[0_0_30px_rgba(0,247,255,0.15)] bg-black/60">
+                        <img
+                          src={results.annotatedImage}
+                          alt="AI Detection Overlay"
+                          className="max-h-[380px] w-auto object-contain rounded-lg select-none"
+                        />
+                        <div className="absolute bottom-2.5 left-2.5 glass-card bg-background/85 px-3 py-1 rounded-md border border-primary/30 flex items-center gap-2">
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                          </span>
+                          <span className="font-mono text-[11px] text-foreground font-semibold">
+                            {results.panelCount > 0
+                              ? `${results.panelCount} Solar Panels Highlighted in Zone`
+                              : "No Solar Panels Identified in Viewport"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Immobilization Overlay when 3D map is locked & screenshot is being captured */}
                   <AnimatePresence>
@@ -913,38 +999,40 @@ const Analysis = () => {
                   </AnimatePresence>
 
                   {/* 3D Camera Controls */}
-                  <div className="absolute bottom-20 right-3 z-[50] flex flex-col gap-2">
-                    <button
-                      onClick={() => {
-                        const v = sceneViewRef.current;
-                        if (!v) return;
-                        const newTilt = tilt > 30 ? 0 : 65;
-                        v.goTo({ tilt: newTilt }, { duration: 600 });
-                      }}
-                      disabled={isImmobilized}
-                      className="glass-card rounded-lg p-2 bg-background/80 hover:border-primary/40 disabled:opacity-50"
-                      title="Toggle Tilt"
-                    >
-                      <Eye className="w-4 h-4 text-primary" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        const v = sceneViewRef.current;
-                        if (!v) return;
-                        const z = bufferRadius === "2400" ? 850 : 420;
-                        v.goTo({
-                          position: { latitude: parseFloat(lat), longitude: parseFloat(lon), z },
-                          tilt: 45,
-                          heading: 0
-                        }, { duration: 800 });
-                      }}
-                      disabled={isImmobilized}
-                      className="glass-card rounded-lg p-2 bg-background/80 hover:border-primary/40 disabled:opacity-50"
-                      title="Reset Viewpoint"
-                    >
-                      <Home className="w-4 h-4 text-primary" />
-                    </button>
-                  </div>
+                  {displayMode === '3d' && (
+                    <div className="absolute bottom-20 right-3 z-[50] flex flex-col gap-2">
+                      <button
+                        onClick={() => {
+                          const v = sceneViewRef.current;
+                          if (!v) return;
+                          const newTilt = tilt > 30 ? 0 : 65;
+                          v.goTo({ tilt: newTilt }, { duration: 600 });
+                        }}
+                        disabled={isImmobilized}
+                        className="glass-card rounded-lg p-2 bg-background/80 hover:border-primary/40 disabled:opacity-50"
+                        title="Toggle Tilt"
+                      >
+                        <Eye className="w-4 h-4 text-primary" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          const v = sceneViewRef.current;
+                          if (!v) return;
+                          const z = bufferRadius === "2400" ? 850 : 420;
+                          v.goTo({
+                            position: { latitude: parseFloat(lat), longitude: parseFloat(lon), z },
+                            tilt: 45,
+                            heading: 0
+                          }, { duration: 800 });
+                        }}
+                        disabled={isImmobilized}
+                        className="glass-card rounded-lg p-2 bg-background/80 hover:border-primary/40 disabled:opacity-50"
+                        title="Reset Viewpoint"
+                      >
+                        <Home className="w-4 h-4 text-primary" />
+                      </button>
+                    </div>
+                  )}
 
                   {/* Bottom Action Bar */}
                   <div className="absolute bottom-0 left-0 right-0 z-[50] flex gap-px border-t border-border rounded-b-2xl">
